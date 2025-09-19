@@ -1,4 +1,4 @@
-// server.js - Complete fixed backend with keyword support
+// server.js - Complete backend with all API endpoints
 const http = require('http');
 const https = require('https');
 const url = require('url');
@@ -76,6 +76,24 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, corsHeaders);
       res.end(JSON.stringify(data));
       
+    } else if (path === '/api/placedetails') {
+      const { place_id } = query;
+      
+      if (!place_id) {
+        res.writeHead(400, corsHeaders);
+        res.end(JSON.stringify({ error: 'Missing place_id parameter' }));
+        return;
+      }
+      
+      const apiUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${place_id}&fields=opening_hours,formatted_phone_number,website&key=${API_KEY}`;
+      
+      console.log(`🏢 Place details search for: ${place_id}`);
+      
+      const data = await makeGoogleRequest(apiUrl);
+      
+      res.writeHead(200, corsHeaders);
+      res.end(JSON.stringify(data));
+      
     } else if (path === '/api/distancematrix') {
       const { origins, destinations, mode, departure_time } = query;
       let apiUrl = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origins}&destinations=${destinations}&mode=${mode}&units=metric&key=${API_KEY}`;
@@ -103,7 +121,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`✅ Proxy server running on http://localhost:${PORT}`);
   console.log('📍 Make sure to add your Google API key above!');
-  console.log('🔄 Ready for geocoding, places, and distance matrix requests');
+  console.log('🔄 Ready for geocoding, places, place details, and distance matrix requests');
 });
 
 // To run:
