@@ -1,13 +1,10 @@
-// At the top of server.js, add:
-require('dotenv').config();
-
-// server.js - Complete backend with all API endpoints including Directions API
+// server.js - Complete backend with all API endpoints including Timezone API
 const http = require('http');
 const https = require('https');
 const url = require('url');
 
-// REPLACE WITH YOUR ACTUAL GOOGLE API KEY
-const API_KEY = 'AIzaSyDgw0Zi5Ruj0uyGqM6vTJ_HtgOf4bS8do4'; 
+// Use environment variable for API key (secure)
+const API_KEY = process.env.GOOGLE_API_KEY;
 const PORT = process.env.PORT || 3001;
 
 // Simple CORS headers
@@ -51,6 +48,24 @@ const server = http.createServer(async (req, res) => {
     if (path === '/api/geocode') {
       const address = query.address;
       const apiUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${API_KEY}`;
+      const data = await makeGoogleRequest(apiUrl);
+      
+      res.writeHead(200, corsHeaders);
+      res.end(JSON.stringify(data));
+      
+    } else if (path === '/api/timezone') {
+      const { location, timestamp } = query;
+      
+      if (!location || !timestamp) {
+        res.writeHead(400, corsHeaders);
+        res.end(JSON.stringify({ error: 'Missing location or timestamp parameter' }));
+        return;
+      }
+      
+      const apiUrl = `https://maps.googleapis.com/maps/api/timezone/json?location=${location}&timestamp=${timestamp}&key=${API_KEY}`;
+      
+      console.log(`🌍 Timezone request for: ${location}`);
+      
       const data = await makeGoogleRequest(apiUrl);
       
       res.writeHead(200, corsHeaders);
@@ -145,13 +160,19 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`✅ Proxy server running on http://localhost:${PORT}`);
-  console.log('📍 Make sure to add your Google API key above!');
-  console.log('🔄 Ready for geocoding, places, place details, directions, and distance matrix requests');
+  console.log('🔍 API key loaded from environment variables');
+  console.log('📡 Ready for geocoding, timezone, places, place details, directions, and distance matrix requests');
+  
+  // Check if API key is loaded
+  if (!API_KEY) {
+    console.error('❌ WARNING: GOOGLE_API_KEY environment variable not set!');
+  } else {
+    console.log('✅ Google API key loaded successfully');
+  }
 });
 
 // To run:
-// 1. Make sure your Google API key is added above
-// 2. Save this as server.js
+// 1. Make sure GOOGLE_API_KEY is set in your environment variables
+// 2. Save this as server.js  
 // 3. Open Command Prompt (cmd) in the same folder
 // 4. Run: node server.js
-
