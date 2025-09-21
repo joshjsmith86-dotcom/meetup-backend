@@ -1,3 +1,6 @@
+// At the top of server.js, add:
+require('dotenv').config();
+
 // server.js - Complete backend with all API endpoints including Directions API
 const http = require('http');
 const https = require('https');
@@ -151,3 +154,4 @@ server.listen(PORT, () => {
 // 2. Save this as server.js
 // 3. Open Command Prompt (cmd) in the same folder
 // 4. Run: node server.js
+
