@@ -1,4 +1,4 @@
-// server.js - Complete backend with all API endpoints
+// server.js - Complete backend with all API endpoints including Directions API
 const http = require('http');
 const https = require('https');
 const url = require('url');
@@ -94,6 +94,28 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, corsHeaders);
       res.end(JSON.stringify(data));
       
+    } else if (path === '/api/directions') {
+      const { origin, destination, mode, departure_time } = query;
+      
+      if (!origin || !destination) {
+        res.writeHead(400, corsHeaders);
+        res.end(JSON.stringify({ error: 'Missing origin or destination parameter' }));
+        return;
+      }
+      
+      let apiUrl = `https://maps.googleapis.com/maps/api/directions/json?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&mode=${mode || 'driving'}&key=${API_KEY}`;
+      
+      if (departure_time) {
+        apiUrl += `&departure_time=${departure_time}`;
+      }
+      
+      console.log(`🗺️ Directions request: ${origin} to ${destination} via ${mode || 'driving'}`);
+      
+      const data = await makeGoogleRequest(apiUrl);
+      
+      res.writeHead(200, corsHeaders);
+      res.end(JSON.stringify(data));
+      
     } else if (path === '/api/distancematrix') {
       const { origins, destinations, mode, departure_time } = query;
       let apiUrl = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origins}&destinations=${destinations}&mode=${mode}&units=metric&key=${API_KEY}`;
@@ -121,7 +143,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`✅ Proxy server running on http://localhost:${PORT}`);
   console.log('📍 Make sure to add your Google API key above!');
-  console.log('🔄 Ready for geocoding, places, place details, and distance matrix requests');
+  console.log('🔄 Ready for geocoding, places, place details, directions, and distance matrix requests');
 });
 
 // To run:
