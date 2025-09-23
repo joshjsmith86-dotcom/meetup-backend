@@ -1,4 +1,4 @@
-// server.js - Complete backend with all API endpoints including Timezone API
+// server.js - Complete backend with all API endpoints including Photos
 const http = require('http');
 const https = require('https');
 const url = require('url');
@@ -112,6 +112,26 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, corsHeaders);
       res.end(JSON.stringify(data));
       
+    } else if (path === '/api/photo') {
+      const { photo_reference, maxwidth } = query;
+      
+      if (!photo_reference) {
+        res.writeHead(400, corsHeaders);
+        res.end(JSON.stringify({ error: 'Missing photo_reference parameter' }));
+        return;
+      }
+      
+      const apiUrl = `https://maps.googleapis.com/maps/api/place/photo?photo_reference=${photo_reference}&maxwidth=${maxwidth || 400}&key=${API_KEY}`;
+      
+      console.log(`📸 Photo request for reference: ${photo_reference}`);
+      
+      // For photos, we redirect to the Google URL directly
+      res.writeHead(302, {
+        'Location': apiUrl,
+        'Access-Control-Allow-Origin': '*'
+      });
+      res.end();
+      
     } else if (path === '/api/directions') {
       const { origin, destination, mode, departure_time } = query;
       
@@ -161,11 +181,11 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`✅ Proxy server running on http://localhost:${PORT}`);
   console.log('🔍 API key loaded from environment variables');
-  console.log('📡 Ready for geocoding, timezone, places, place details, directions, and distance matrix requests');
+  console.log('📡 Ready for geocoding, timezone, places, place details, photos, directions, and distance matrix requests');
   
   // Check if API key is loaded
   if (!API_KEY) {
-    console.error('❌ WARNING: GOOGLE_API_KEY environment variable not set!');
+    console.error('⚠️ WARNING: GOOGLE_API_KEY environment variable not set!');
   } else {
     console.log('✅ Google API key loaded successfully');
   }
@@ -175,4 +195,4 @@ server.listen(PORT, () => {
 // 1. Make sure GOOGLE_API_KEY is set in your environment variables
 // 2. Save this as server.js  
 // 3. Open Command Prompt (cmd) in the same folder
-// 4. Run: node server.js
+// 4. Run: node server
