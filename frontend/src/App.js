@@ -274,12 +274,18 @@ function App() {
   // Find transit midpoint
   const findTransitMidpoint = async (friend1, friend2, transportMode, departureTime) => {
     try {
-      let url = `https://meetup-backend-xqtj.onrender.com/api/directions?origin=${friend1.lat},${friend1.lng}&destination=${friend2.lat},${friend2.lng}&mode=transit&alternatives=true`;
+      // Ensure coordinates are properly formatted and valid
+      const origin = `${parseFloat(friend1.lat).toFixed(6)},${parseFloat(friend1.lng).toFixed(6)}`;
+      const destination = `${parseFloat(friend2.lat).toFixed(6)},${parseFloat(friend2.lng).toFixed(6)}`;
+      
+      let url = `https://meetup-backend-xqtj.onrender.com/api/directions?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&mode=transit&alternatives=true`;
       
       if (departureTime) {
         const timestamp = Math.floor(new Date(departureTime).getTime() / 1000);
         url += `&departure_time=${timestamp}`;
       }
+      
+      console.log('Transit directions API URL:', url);
       
       const response = await fetch(url);
       const data = await response.json();
@@ -474,8 +480,9 @@ function App() {
                       transportMode === 'walking' ? 'walking' : 
                       transportMode === 'bicycling' ? 'bicycling' : 'transit';
     
-    const origins = friendCoords.map(coord => `${coord.lat},${coord.lng}`).join('|');
-    const destination = `${candidatePoint.lat},${candidatePoint.lng}`;
+    // Ensure all coordinates are properly formatted
+    const origins = friendCoords.map(coord => `${parseFloat(coord.lat).toFixed(6)},${parseFloat(coord.lng).toFixed(6)}`).join('|');
+    const destination = `${parseFloat(candidatePoint.lat).toFixed(6)},${parseFloat(candidatePoint.lng).toFixed(6)}`;
     
     let url = `https://meetup-backend-xqtj.onrender.com/api/distancematrix?origins=${encodeURIComponent(origins)}&destinations=${encodeURIComponent(destination)}&mode=${googleMode}&units=metric`;
     
@@ -483,6 +490,8 @@ function App() {
       const timestamp = Math.floor(new Date(departureTime).getTime() / 1000);
       url += `&departure_time=${timestamp}`;
     }
+    
+    console.log('Distance Matrix API URL:', url);
     
     const response = await fetch(url);
     const data = await response.json();
@@ -586,12 +595,18 @@ function App() {
                         transportMode === 'walking' ? 'walking' : 
                         transportMode === 'bicycling' ? 'bicycling' : 'transit';
       
-      let url = `https://meetup-backend-xqtj.onrender.com/api/directions?origin=${friend1.lat},${friend1.lng}&destination=${friend2.lat},${friend2.lng}&mode=${googleMode}`;
+      // Ensure coordinates are properly formatted and valid
+      const origin = `${parseFloat(friend1.lat).toFixed(6)},${parseFloat(friend1.lng).toFixed(6)}`;
+      const destination = `${parseFloat(friend2.lat).toFixed(6)},${parseFloat(friend2.lng).toFixed(6)}`;
+      
+      let url = `https://meetup-backend-xqtj.onrender.com/api/directions?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&mode=${googleMode}`;
       
       if (departureTime) {
         const timestamp = Math.floor(new Date(departureTime).getTime() / 1000);
         url += `&departure_time=${timestamp}`;
       }
+      
+      console.log('Directions API URL:', url);
       
       const response = await fetch(url);
       const data = await response.json();
@@ -1019,8 +1034,9 @@ function App() {
   // Calculate travel times
   const calculateTravelTimes = async (origins, destinations, mode, departureTime = null) => {
     try {
-      const originsStr = origins.map(coord => `${coord.lat},${coord.lng}`).join('|');
-      const destinationsStr = destinations.map(coord => `${coord.lat},${coord.lng}`).join('|');
+      // Ensure all coordinates are properly formatted and valid
+      const originsStr = origins.map(coord => `${parseFloat(coord.lat).toFixed(6)},${parseFloat(coord.lng).toFixed(6)}`).join('|');
+      const destinationsStr = destinations.map(coord => `${parseFloat(coord.lat).toFixed(6)},${parseFloat(coord.lng).toFixed(6)}`).join('|');
       
       let url = `https://meetup-backend-xqtj.onrender.com/api/distancematrix?origins=${encodeURIComponent(originsStr)}&destinations=${encodeURIComponent(destinationsStr)}&mode=${mode}&units=metric`;
       
@@ -1029,8 +1045,12 @@ function App() {
         url += `&departure_time=${timestamp}`;
       }
       
+      console.log('Travel times API URL:', url);
+      
       const response = await fetch(url);
       const data = await response.json();
+      
+      console.log('Travel times API response:', data);
       
       if (data.status === 'OK') {
         return data.rows.map(row => 
@@ -1041,7 +1061,8 @@ function App() {
           }))
         );
       } else {
-        throw new Error(`Distance Matrix API error: ${data.status}`);
+        console.error('Distance Matrix API error details:', data);
+        throw new Error(`Distance Matrix API error: ${data.status} - ${data.error_message || 'Unknown error'}`);
       }
     } catch (error) {
       console.error('Distance Matrix error:', error);
