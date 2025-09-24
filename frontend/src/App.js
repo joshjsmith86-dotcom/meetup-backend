@@ -286,9 +286,13 @@ function App() {
       }
       
       console.log('Transit directions API URL:', url);
+      console.log('Origin coords:', { lat: friend1.lat, lng: friend1.lng, formatted: origin });
+      console.log('Destination coords:', { lat: friend2.lat, lng: friend2.lng, formatted: destination });
       
       const response = await fetch(url);
       const data = await response.json();
+      
+      console.log('Transit directions API response:', data);
       
       if (data.status === 'OK' && data.routes.length > 0) {
         const allRoutes = data.routes;
@@ -607,9 +611,13 @@ function App() {
       }
       
       console.log('Directions API URL:', url);
+      console.log('Origin coords:', { lat: friend1.lat, lng: friend1.lng, formatted: origin });
+      console.log('Destination coords:', { lat: friend2.lat, lng: friend2.lng, formatted: destination });
       
       const response = await fetch(url);
       const data = await response.json();
+      
+      console.log('Directions API response:', data);
       
       if (data.status === 'OK' && data.routes.length > 0) {
         const route = data.routes[0];
@@ -656,7 +664,8 @@ function App() {
         };
         
       } else {
-        throw new Error(`Directions API failed: ${data.status}`);
+        console.error('Directions API error details:', data);
+        throw new Error(`Directions API failed: ${data.status} - ${data.error_message || 'Unknown error'}`);
       }
     } catch (error) {
       console.warn('Route midpoint calculation failed, using geographic center:', error);
