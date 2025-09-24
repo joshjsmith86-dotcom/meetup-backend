@@ -32,7 +32,7 @@ function App() {
     return defaultTime.toISOString().slice(0, 16);
   });
 
-  // Load state from URL on component mount
+  // Load state from URL on component mount (only once)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const sharedData = urlParams.get('meetup');
@@ -48,10 +48,12 @@ function App() {
         if (decoded.customSearch) setCustomSearch(decoded.customSearch);
         if (decoded.meetupDateTime) setMeetupDateTime(decoded.meetupDateTime);
         
+        // Set a flag to trigger auto-search after a delay
         if (decoded.friends && decoded.friends.every(f => f.location.trim() !== '')) {
           setTimeout(() => {
             const searchButton = document.querySelector('button[onclick*="findOptimalMeetups"]');
             if (searchButton && !searchButton.disabled) {
+              // Manually trigger search after state is set
               setTimeout(() => {
                 window.dispatchEvent(new CustomEvent('autoSearch'));
               }, 500);
@@ -62,7 +64,7 @@ function App() {
         console.warn('Failed to parse shared meetup data:', error);
       }
     }
-  }, []);
+  }, []); // Empty dependency array - only run once
 
   // Generate shareable URL
   const generateShareableUrl = () => {
@@ -91,6 +93,7 @@ function App() {
       setTimeout(() => setCopySuccess(false), 2000);
     } catch (error) {
       console.error('Failed to copy to clipboard:', error);
+      // Fallback for older browsers
       const textArea = document.createElement('textarea');
       textArea.value = text;
       document.body.appendChild(textArea);
@@ -102,13 +105,13 @@ function App() {
     }
   };
 
-  // Get photo URL from Google Places
+  // Get photo URL from Google Places photo reference
   const getPhotoUrl = (photoReference, maxWidth = 400) => {
     if (!photoReference) return null;
     return `https://meetup-backend-xqtj.onrender.com/api/photo?photo_reference=${photoReference}&maxwidth=${maxWidth}`;
   };
 
-  // Generate time options
+  // Generate time options in 15-minute increments
   const generateTimeOptions = () => {
     const options = [];
     for (let hour = 0; hour < 24; hour++) {
@@ -179,7 +182,7 @@ function App() {
     );
   };
 
-  // Geocode address
+  // Geocode an address to get coordinates and timezone
   const geocodeAddress = async (address) => {
     try {
       const response = await fetch(
@@ -195,6 +198,7 @@ function App() {
           formatted_address: data.results[0].formatted_address
         };
         
+        // Get timezone for this location
         try {
           const timezoneResponse = await fetch(
             `https://meetup-backend-xqtj.onrender.com/api/timezone?location=${location.lat},${location.lng}&timestamp=${Math.floor(Date.now() / 1000)}`
@@ -219,7 +223,7 @@ function App() {
     }
   };
 
-  // Convert time to timezone
+  // Convert meetup time to target timezone
   const convertToLocalTime = (meetupDateTime, targetTimezone) => {
     try {
       if (!targetTimezone) {
@@ -227,7 +231,10 @@ function App() {
         return meetupDateTime;
       }
 
+      // Parse the meetup time (assumes it's in user's local timezone)
       const userTime = new Date(meetupDateTime);
+      
+      // Convert to target timezone using Intl API
       const localTime = new Date(userTime.toLocaleString("en-US", {timeZone: targetTimezone}));
       const userTimeInUTC = new Date(userTime.toLocaleString("en-US", {timeZone: "UTC"}));
       const offset = userTimeInUTC.getTime() - localTime.getTime();
@@ -240,7 +247,7 @@ function App() {
     }
   };
 
-  // Get transit type score
+  // Score transit types by preference (for station importance calculation)
   const getTransitTypeScore = (transitType) => {
     switch (transitType?.toLowerCase()) {
       case 'subway':
@@ -251,7 +258,7 @@ function App() {
     }
   };
 
-  // Test venue count near station
+  // Test venue count near a station (for station selection logic)
   const testVenueCountNearStation = async (lat, lng) => {
     try {
       const response = await fetch(
@@ -271,28 +278,18 @@ function App() {
     }
   };
 
-  // Find transit midpoint
+  // Find optimal transit midpoint considering station importance and venue density
   const findTransitMidpoint = async (friend1, friend2, transportMode, departureTime) => {
     try {
-      // Ensure coordinates are properly formatted and valid
-      const origin = `${parseFloat(friend1.lat).toFixed(6)},${parseFloat(friend1.lng).toFixed(6)}`;
-      const destination = `${parseFloat(friend2.lat).toFixed(6)},${parseFloat(friend2.lng).toFixed(6)}`;
-      
-      let url = `https://meetup-backend-xqtj.onrender.com/api/directions?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&mode=transit&alternatives=true`;
+      let url = `https://meetup-backend-xqtj.onrender.com/api/directions?origin=${friend1.lat},${friend1.lng}&destination=${friend2.lat},${friend2.lng}&mode=transit&alternatives=true`;
       
       if (departureTime) {
         const timestamp = Math.floor(new Date(departureTime).getTime() / 1000);
         url += `&departure_time=${timestamp}`;
       }
       
-      console.log('Transit directions API URL:', url);
-      console.log('Origin coords:', { lat: friend1.lat, lng: friend1.lng, formatted: origin });
-      console.log('Destination coords:', { lat: friend2.lat, lng: friend2.lng, formatted: destination });
-      
       const response = await fetch(url);
       const data = await response.json();
-      
-      console.log('Transit directions API response:', data);
       
       if (data.status === 'OK' && data.routes.length > 0) {
         const allRoutes = data.routes;
@@ -471,22 +468,21 @@ function App() {
     }
   };
 
-  // Mobile device detection
+  // Detect if user is on mobile device
   const isMobileDevice = () => {
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
            ('ontouchstart' in window) ||
            (navigator.maxTouchPoints > 0);
   };
 
-  // Calculate travel time to point
+  // Calculate total travel time from all friends to a candidate point
   const calculateTotalTravelTimeToPoint = async (friendCoords, candidatePoint, transportMode, departureTime) => {
     const googleMode = transportMode === 'driving' ? 'driving' : 
                       transportMode === 'walking' ? 'walking' : 
                       transportMode === 'bicycling' ? 'bicycling' : 'transit';
     
-    // Ensure all coordinates are properly formatted
-    const origins = friendCoords.map(coord => `${parseFloat(coord.lat).toFixed(6)},${parseFloat(coord.lng).toFixed(6)}`).join('|');
-    const destination = `${parseFloat(candidatePoint.lat).toFixed(6)},${parseFloat(candidatePoint.lng).toFixed(6)}`;
+    const origins = friendCoords.map(coord => `${coord.lat},${coord.lng}`).join('|');
+    const destination = `${candidatePoint.lat},${candidatePoint.lng}`;
     
     let url = `https://meetup-backend-xqtj.onrender.com/api/distancematrix?origins=${encodeURIComponent(origins)}&destinations=${encodeURIComponent(destination)}&mode=${googleMode}&units=metric`;
     
@@ -494,8 +490,6 @@ function App() {
       const timestamp = Math.floor(new Date(departureTime).getTime() / 1000);
       url += `&departure_time=${timestamp}`;
     }
-    
-    console.log('Distance Matrix API URL:', url);
     
     const response = await fetch(url);
     const data = await response.json();
@@ -522,7 +516,7 @@ function App() {
     }
   };
 
-  // Find optimal hub for multiple friends
+  // Find optimal hub for 3+ friends by testing multiple potential meeting points
   const findOptimalHub = async (friendCoords, transportMode, departureTime) => {
     try {
       const candidates = [];
@@ -577,7 +571,7 @@ function App() {
     }
   };
 
-  // Find optimal meeting point
+  // Route-based center finding with transit optimization
   const findOptimalMeetingPoint = async (friendCoords, transportMode, departureTime) => {
     if (friendCoords.length === 2) {
       if (transportMode === 'transit') {
@@ -592,32 +586,22 @@ function App() {
     }
   };
 
-  // Find route midpoint
+  // Find midpoint along actual route between two friends (non-transit)
   const findRouteMidpoint = async (friend1, friend2, transportMode, departureTime) => {
     try {
       const googleMode = transportMode === 'driving' ? 'driving' : 
                         transportMode === 'walking' ? 'walking' : 
                         transportMode === 'bicycling' ? 'bicycling' : 'transit';
       
-      // Ensure coordinates are properly formatted and valid
-      const origin = `${parseFloat(friend1.lat).toFixed(6)},${parseFloat(friend1.lng).toFixed(6)}`;
-      const destination = `${parseFloat(friend2.lat).toFixed(6)},${parseFloat(friend2.lng).toFixed(6)}`;
-      
-      let url = `https://meetup-backend-xqtj.onrender.com/api/directions?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&mode=${googleMode}`;
+      let url = `https://meetup-backend-xqtj.onrender.com/api/directions?origin=${friend1.lat},${friend1.lng}&destination=${friend2.lat},${friend2.lng}&mode=${googleMode}`;
       
       if (departureTime) {
         const timestamp = Math.floor(new Date(departureTime).getTime() / 1000);
         url += `&departure_time=${timestamp}`;
       }
       
-      console.log('Directions API URL:', url);
-      console.log('Origin coords:', { lat: friend1.lat, lng: friend1.lng, formatted: origin });
-      console.log('Destination coords:', { lat: friend2.lat, lng: friend2.lng, formatted: destination });
-      
       const response = await fetch(url);
       const data = await response.json();
-      
-      console.log('Directions API response:', data);
       
       if (data.status === 'OK' && data.routes.length > 0) {
         const route = data.routes[0];
@@ -664,8 +648,7 @@ function App() {
         };
         
       } else {
-        console.error('Directions API error details:', data);
-        throw new Error(`Directions API failed: ${data.status} - ${data.error_message || 'Unknown error'}`);
+        throw new Error(`Directions API failed: ${data.status}`);
       }
     } catch (error) {
       console.warn('Route midpoint calculation failed, using geographic center:', error);
@@ -678,7 +661,6 @@ function App() {
     }
   };
 
-  // Get venue details
   const getVenueDetails = async (placeId) => {
     try {
       const response = await fetch(
@@ -700,7 +682,7 @@ function App() {
     }
   };
 
-  // Check if venue is open
+  // Check if venue is open at specified time, considering timezone
   const isVenueOpenAt = (openingHours, dateTime, timezone = null) => {
     if (!openingHours || !openingHours.periods || !Array.isArray(openingHours.periods)) {
       return { isOpen: null, closingTime: null, isUnknown: true };
@@ -767,7 +749,6 @@ function App() {
     return { isOpen: false, closingTime: null };
   };
 
-  // Find venues nearby
   const findVenuesNearby = async (centerLat, centerLng, activityTypes, customSearchTerm = '', transitStations = null, optimalCenter = null) => {
     const allVenues = [];
     
@@ -1040,10 +1021,9 @@ function App() {
     }
   };
 
-  // Calculate travel times
   const calculateTravelTimes = async (origins, destinations, mode, departureTime = null) => {
     try {
-      // Ensure all coordinates are properly formatted and valid
+      // Ensure coordinates are properly formatted and valid
       const originsStr = origins.map(coord => `${parseFloat(coord.lat).toFixed(6)},${parseFloat(coord.lng).toFixed(6)}`).join('|');
       const destinationsStr = destinations.map(coord => `${parseFloat(coord.lat).toFixed(6)},${parseFloat(coord.lng).toFixed(6)}`).join('|');
       
@@ -1054,12 +1034,14 @@ function App() {
         url += `&departure_time=${timestamp}`;
       }
       
-      console.log('Travel times API URL:', url);
+      console.log('Distance Matrix API URL:', url);
+      console.log('Origins:', originsStr);
+      console.log('Destinations:', destinationsStr);
       
       const response = await fetch(url);
       const data = await response.json();
       
-      console.log('Travel times API response:', data);
+      console.log('Distance Matrix API response:', data);
       
       if (data.status === 'OK') {
         return data.rows.map(row => 
@@ -1079,7 +1061,6 @@ function App() {
     }
   };
 
-  // Main function to find optimal meetups
   const findOptimalMeetups = async () => {
     setIsLoading(true);
     setError(null);
@@ -1303,6 +1284,7 @@ function App() {
     googleMapRef.current = map;
     let currentInfoWindow = null;
 
+    // Add friend location markers
     friendLocations.forEach((friend) => {
       const friendMarker = new window.google.maps.Marker({
         position: { lat: friend.lat, lng: friend.lng },
@@ -1331,6 +1313,7 @@ function App() {
       });
     });
 
+    // Add venue markers
     recommendations.forEach((venue, index) => {
       const marker = new window.google.maps.Marker({
         position: venue.coords,
@@ -1371,35 +1354,44 @@ function App() {
       });
     });
 
-    if (recommendations.length > 0) {
+    // Fit bounds to show all markers
+    if (recommendations.length > 0 && friendLocations.length > 0) {
       const bounds = new window.google.maps.LatLngBounds();
       
-      recommendations.forEach((venue) => {
-        const venuePos = { lat: venue.coords.lat, lng: venue.coords.lng };
-        bounds.extend(venuePos);
+      // Include all friend locations
+      friendLocations.forEach((friend) => {
+        bounds.extend(new window.google.maps.LatLng(friend.lat, friend.lng));
       });
       
-      if (recommendations.length === 1) {
-        map.setCenter({ lat: recommendations[0].coords.lat, lng: recommendations[0].coords.lng });
-        map.setZoom(15);
-      } else {
-        map.fitBounds(bounds, {
-          top: 80,
-          right: 80,
-          bottom: 80,
-          left: 80
-        });
-        
-        window.google.maps.event.addListenerOnce(map, 'bounds_changed', () => {
-          const currentZoom = map.getZoom();
-          
-          if (currentZoom < 12) {
-            map.setZoom(12);
-          } else if (currentZoom > 18) {
-            map.setZoom(18);
-          }
-        });
-      }
+      // Include all venue locations
+      recommendations.forEach((venue) => {
+        bounds.extend(new window.google.maps.LatLng(venue.coords.lat, venue.coords.lng));
+      });
+      
+      // Fit the map to show all markers
+      map.fitBounds(bounds);
+      
+      // Add padding and set zoom constraints after bounds are set
+      setTimeout(() => {
+        const currentZoom = map.getZoom();
+        if (currentZoom > 16) {
+          map.setZoom(16); // Don't zoom in too much
+        } else if (currentZoom < 10) {
+          map.setZoom(10); // Don't zoom out too much
+        }
+      }, 100);
+      
+    } else if (recommendations.length > 0) {
+      // If only venues, center on first venue
+      map.setCenter({ lat: recommendations[0].coords.lat, lng: recommendations[0].coords.lng });
+      map.setZoom(14);
+    } else if (friendLocations.length > 0) {
+      // If only friends, fit bounds to friends
+      const bounds = new window.google.maps.LatLngBounds();
+      friendLocations.forEach((friend) => {
+        bounds.extend(new window.google.maps.LatLng(friend.lat, friend.lng));
+      });
+      map.fitBounds(bounds);
     }
   };
 
@@ -1433,12 +1425,12 @@ function App() {
   }, [showMap, mapCenter]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-orange-50 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-orange-50 p-3 sm:p-6">
       <div className="max-w-4xl mx-auto">
-        <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-4 mb-4">
+        <div className="text-center mb-6 sm:mb-8">
+          <div className="flex items-center justify-center gap-3 sm:gap-4 mb-3 sm:mb-4">
             <div className="relative">
-              <svg width="64" height="80" viewBox="0 0 64 80" className="drop-shadow-md">
+              <svg width="48" height="60" viewBox="0 0 64 80" className="sm:w-16 sm:h-20 drop-shadow-md">
                 <path d="M32 0C20.4 0 11 9.4 11 21c0 15.8 21 35 21 35s21-19.2 21-35C53 9.4 43.6 0 32 0z" fill="#FF6A00"/>
                 <circle cx="32" cy="21" r="12" fill="white" strokeWidth="2" stroke="#FF6A00"/>
                 <circle cx="32" cy="21" r="8" fill="white" strokeWidth="2" stroke="#FF6A00"/>
@@ -1447,54 +1439,54 @@ function App() {
               </svg>
             </div>
             <div className="text-left">
-              <h1 className="text-4xl font-bold text-slate-800 leading-tight">
+              <h1 className="text-3xl sm:text-4xl font-bold text-slate-800 leading-tight">
                 Recomigo
               </h1>
-              <p className="text-slate-600 text-base font-medium">Plan better. Meet smarter.</p>
+              <p className="text-sm sm:text-base text-slate-600 font-medium">Plan better. Meet smarter.</p>
             </div>
           </div>
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-6 mb-8">
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 sm:p-6 mb-4 sm:mb-8">
             <div className="flex items-start gap-3">
-              <AlertCircle className="text-red-600 mt-1 flex-shrink-0" size={20} />
+              <AlertCircle className="text-red-600 mt-1 flex-shrink-0" size={18} />
               <div>
-                <h3 className="font-semibold text-red-900">Error</h3>
-                <p className="text-red-800 text-sm">{error}</p>
+                <h3 className="font-semibold text-red-900 text-sm sm:text-base">Error</h3>
+                <p className="text-red-800 text-xs sm:text-sm">{error}</p>
               </div>
             </div>
           </div>
         )}
 
-        <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
-          <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
-            <MapPin className="text-orange-500" />
+        <div className="bg-white rounded-xl shadow-lg p-4 sm:p-8 mb-4 sm:mb-8">
+          <h2 className="text-lg sm:text-xl font-semibold mb-4 sm:mb-6 flex items-center gap-2">
+            <MapPin className="text-orange-500" size={20} />
             Friend Locations
           </h2>
           
           {friends.map((friend, index) => (
-            <div key={friend.id} className="flex gap-3 mb-3">
+            <div key={friend.id} className="flex flex-col sm:flex-row gap-2 sm:gap-3 mb-3">
               <input
                 type="text"
                 placeholder={`Friend ${index + 1} name`}
                 value={friend.name}
                 onChange={(e) => updateFriend(friend.id, 'name', e.target.value)}
-                className="w-28 sm:w-32 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 flex-shrink-0"
+                className="w-full sm:w-28 lg:w-32 p-3 sm:p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm sm:text-base"
               />
               <input
                 type="text"
                 placeholder="Full address, postcode, or 'City, Country'"
                 value={friend.location}
                 onChange={(e) => updateFriend(friend.id, 'location', e.target.value)}
-                className="flex-1 min-w-0 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                className="flex-1 min-w-0 p-3 sm:p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm sm:text-base"
               />
               {friends.length > 2 && (
                 <button
                   onClick={() => removeFriend(friend.id)}
-                  className="p-4 text-red-500 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
+                  className="p-3 sm:p-4 text-red-500 hover:bg-red-50 rounded-lg transition-colors self-start sm:self-auto"
                 >
-                  <X size={20} />
+                  <X size={18} />
                 </button>
               )}
             </div>
@@ -1503,23 +1495,23 @@ function App() {
           {friends.length < 4 && (
             <button
               onClick={addFriend}
-              className="flex items-center gap-2 text-orange-600 hover:text-orange-800 font-medium mt-2"
+              className="flex items-center gap-2 text-orange-600 hover:text-orange-800 font-medium mt-2 text-sm sm:text-base"
             >
-              <Plus size={20} />
+              <Plus size={18} />
               Add another friend
             </button>
           )}
         </div>
 
-        <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
-          <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
-            <Clock className="text-orange-500" />
+        <div className="bg-white rounded-xl shadow-lg p-4 sm:p-8 mb-4 sm:mb-8">
+          <h2 className="text-lg sm:text-xl font-semibold mb-4 sm:mb-6 flex items-center gap-2">
+            <Clock className="text-orange-500" size={20} />
             When & How
           </h2>
           
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
                 Meetup Date & Time
               </label>
               <div className="grid grid-cols-2 gap-2">
@@ -1530,7 +1522,7 @@ function App() {
                     const currentTime = meetupDateTime.slice(11);
                     setMeetupDateTime(`${e.target.value}T${currentTime}`);
                   }}
-                  className="p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                  className="p-3 sm:p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm sm:text-base"
                   min={new Date().toISOString().slice(0, 10)}
                 />
                 <select
@@ -1539,20 +1531,20 @@ function App() {
                     const currentDate = meetupDateTime.slice(0, 10);
                     setMeetupDateTime(`${currentDate}T${e.target.value}`);
                   }}
-                  className="p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                  className="p-3 sm:p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm sm:text-base"
                 >
                   {timeOptions.map(time => (
                     <option key={time} value={time}>{time}</option>
                   ))}
                 </select>
               </div>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-xs sm:text-sm text-gray-500 mt-1">
                 Travel times and venue hours will be calculated for this time
               </p>
             </div>
             
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
                 Transport Mode
               </label>
               <div className="grid grid-cols-2 gap-2">
@@ -1563,13 +1555,13 @@ function App() {
                     <button
                       key={option.id}
                       onClick={() => setTransport(option.id)}
-                      className={`p-3 rounded-lg border-2 transition-all duration-300 text-sm ${
+                      className={`p-2 sm:p-3 rounded-lg border-2 transition-all duration-300 text-xs sm:text-sm ${
                         isSelected
                           ? 'border-slate-600 bg-slate-100 text-slate-800 shadow-lg ring-2 ring-slate-300'
                           : 'border-gray-200 bg-white hover:border-slate-400 hover:shadow-md'
                       }`}
                     >
-                      <Icon className={`mx-auto mb-1 ${isSelected ? 'text-slate-700' : 'text-gray-600'}`} size={18} />
+                      <Icon className={`mx-auto mb-1 ${isSelected ? 'text-slate-700' : 'text-gray-600'}`} size={16} />
                       <div className={`font-medium ${isSelected ? 'text-slate-800' : 'text-gray-900'}`}>{option.label}</div>
                     </button>
                   );
@@ -1579,14 +1571,14 @@ function App() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
-          <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
-            <Coffee className="text-orange-500" />
+        <div className="bg-white rounded-xl shadow-lg p-4 sm:p-8 mb-4 sm:mb-8">
+          <h2 className="text-lg sm:text-xl font-semibold mb-4 sm:mb-6 flex items-center gap-2">
+            <Coffee className="text-orange-500" size={20} />
             Activity Preferences
           </h2>
           
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+          <div className="mb-4 sm:mb-6">
+            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
               Custom Search (Optional)
             </label>
             <input
@@ -1594,11 +1586,11 @@ function App() {
               placeholder="e.g. Italian restaurant, gym, bowling, coffee shop, spa, pizza..."
               value={customSearch}
               onChange={(e) => setCustomSearch(e.target.value)}
-              className="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+              className="w-full p-3 sm:p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm sm:text-base"
             />
           </div>
           
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
             {activityOptions.map((option) => {
               const Icon = option.icon;
               const isSelected = activities.includes(option.id);
@@ -1606,22 +1598,22 @@ function App() {
                 <button
                   key={option.id}
                   onClick={() => toggleActivity(option.id)}
-                  className={`p-5 rounded-lg border-2 transition-all duration-300 transform hover:scale-105 ${
+                  className={`p-3 sm:p-5 rounded-lg border-2 transition-all duration-300 transform hover:scale-105 ${
                     isSelected
                       ? 'border-orange-500 bg-orange-100 text-orange-700 shadow-lg ring-2 ring-orange-200'
                       : 'border-gray-200 bg-white hover:border-orange-300 hover:shadow-md'
                   }`}
                 >
-                  <Icon className={`mx-auto mb-2 ${isSelected ? 'text-orange-600' : 'text-gray-600'}`} size={24} />
-                  <div className={`font-medium ${isSelected ? 'text-orange-700' : 'text-gray-900'}`}>{option.label}</div>
+                  <Icon className={`mx-auto mb-1 sm:mb-2 ${isSelected ? 'text-orange-600' : 'text-gray-600'}`} size={20} />
+                  <div className={`font-medium text-xs sm:text-sm ${isSelected ? 'text-orange-700' : 'text-gray-900'}`}>{option.label}</div>
                 </button>
               );
             })}
           </div>
 
-          <div className="border-t pt-6">
-            <h3 className="text-lg font-medium mb-4 text-gray-900">Additional Filters</h3>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="border-t pt-4 sm:pt-6">
+            <h3 className="text-base sm:text-lg font-medium mb-3 sm:mb-4 text-gray-900">Additional Filters</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
               {additionalFilterOptions.map((option) => {
                 const Icon = option.icon;
                 const isSelected = additionalFilters.includes(option.id);
@@ -1629,13 +1621,13 @@ function App() {
                   <button
                     key={option.id}
                     onClick={() => toggleAdditionalFilter(option.id)}
-                    className={`p-3 rounded-lg border-2 transition-all duration-300 text-sm ${
+                    className={`p-2 sm:p-3 rounded-lg border-2 transition-all duration-300 text-xs sm:text-sm ${
                       isSelected
                         ? 'border-slate-700 bg-slate-800 text-white shadow-lg ring-2 ring-slate-400'
                         : 'border-gray-200 bg-white hover:border-slate-400 hover:shadow-sm'
                     }`}
                   >
-                    <Icon className={`mx-auto mb-1 ${isSelected ? 'text-white' : 'text-gray-600'}`} size={18} />
+                    <Icon className={`mx-auto mb-1 ${isSelected ? 'text-white' : 'text-gray-600'}`} size={16} />
                     <div className={`font-medium ${isSelected ? 'text-white' : 'text-gray-900'}`}>{option.label}</div>
                   </button>
                 );
@@ -1647,11 +1639,11 @@ function App() {
           </div>
         </div>
 
-        <div className="text-center mb-8">
+        <div className="text-center mb-4 sm:mb-8">
           <button
             onClick={findOptimalMeetups}
             disabled={!canSearch || isLoading}
-            className={`px-8 py-4 rounded-xl font-semibold text-lg transition-all transform ${
+            className={`w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 rounded-xl font-semibold text-base sm:text-lg transition-all transform ${
               canSearch && !isLoading
                 ? 'bg-orange-500 hover:bg-orange-600 shadow-lg hover:shadow-xl hover:scale-105'
                 : 'bg-gray-300 cursor-not-allowed'
@@ -1659,7 +1651,7 @@ function App() {
           >
             {isLoading ? (
               <span className="flex items-center justify-center gap-2">
-                <div className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full"></div>
+                <div className="animate-spin w-4 h-4 sm:w-5 sm:h-5 border-2 border-white border-t-transparent rounded-full"></div>
                 Finding perfect meetup spots...
               </span>
             ) : (
@@ -1669,12 +1661,12 @@ function App() {
         </div>
 
         {analysisDetails && (
-          <div className="bg-green-50 border border-green-200 rounded-xl p-6 mb-8">
+          <div className="bg-green-50 border border-green-200 rounded-xl p-4 sm:p-6 mb-4 sm:mb-8">
             <div className="flex items-start gap-3">
-              <CheckCircle className="text-green-600 mt-1 flex-shrink-0" size={20} />
+              <CheckCircle className="text-green-600 mt-1 flex-shrink-0" size={18} />
               <div>
-                <h3 className="font-semibold text-green-900 mb-2">Analysis Complete</h3>
-                <div className="text-green-800 text-sm space-y-1">
+                <h3 className="font-semibold text-green-900 mb-2 text-sm sm:text-base">Analysis Complete</h3>
+                <div className="text-green-800 text-xs sm:text-sm space-y-1">
                   <div>✓ Geocoded {analysisDetails.friendsGeocoded} locations</div>
                   <div>✓ Found {analysisDetails.venuesFound} venues via Places API</div>
                   <div>✓ Analyzed {analysisDetails.venuesAnalyzed} venues with real travel times</div>
@@ -1689,11 +1681,12 @@ function App() {
           </div>
         )}
 
+        {/* Share Modal */}
         {showShareModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl max-w-md w-full p-6">
+            <div className="bg-white rounded-xl max-w-md w-full p-4 sm:p-6 mx-4">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold">Share Meetup Plan</h3>
+                <h3 className="text-base sm:text-lg font-semibold">Share Meetup Plan</h3>
                 <button
                   onClick={() => setShowShareModal(false)}
                   className="text-gray-400 hover:text-gray-600"
@@ -1702,7 +1695,7 @@ function App() {
                 </button>
               </div>
               
-              <p className="text-sm text-gray-600 mb-4">
+              <p className="text-xs sm:text-sm text-gray-600 mb-4">
                 Share this link with your friends so they can see the same meetup recommendations:
               </p>
               
@@ -1711,11 +1704,11 @@ function App() {
                   type="text"
                   value={shareableUrl}
                   readOnly
-                  className="flex-1 p-3 border border-gray-300 rounded-lg text-sm bg-gray-50"
+                  className="flex-1 p-2 sm:p-3 border border-gray-300 rounded-lg text-xs sm:text-sm bg-gray-50"
                 />
                 <button
                   onClick={() => copyToClipboard(shareableUrl)}
-                  className="px-4 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-2"
+                  className="px-3 sm:px-4 py-2 sm:py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-2 text-xs sm:text-sm"
                 >
                   {copySuccess ? <CheckCircle size={16} /> : <Copy size={16} />}
                   {copySuccess ? 'Copied!' : 'Copy'}
@@ -1735,14 +1728,14 @@ function App() {
                       window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent('Check out these meetup recommendations!')}&url=${encodeURIComponent(shareableUrl)}`);
                     }
                   }}
-                  className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center justify-center gap-2"
+                  className="flex-1 px-3 sm:px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center justify-center gap-2 text-xs sm:text-sm"
                 >
                   <ExternalLink size={16} />
                   Share
                 </button>
                 <button
                   onClick={() => setShowShareModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="flex-1 px-3 sm:px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-xs sm:text-sm"
                 >
                   Close
                 </button>
@@ -1753,17 +1746,17 @@ function App() {
 
         {recommendations.length > 0 && (
           <>
-            <div ref={resultsRef} className="bg-white rounded-xl shadow-lg p-8 mb-8">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold flex items-center gap-2">
-                  <Clock className="text-orange-500" />
+            <div ref={resultsRef} className="bg-white rounded-xl shadow-lg p-4 sm:p-8 mb-4 sm:mb-8">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 sm:mb-6 gap-3">
+                <h2 className="text-lg sm:text-xl font-semibold flex items-center gap-2">
+                  <Clock className="text-orange-500" size={20} />
                   Recommended Meetup Spots
                 </h2>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   {availableRoutes.length > 1 && (
                     <button
                       onClick={searchDifferentRoute}
-                      className="flex items-center gap-2 px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors"
+                      className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors text-xs sm:text-sm"
                     >
                       🔄 Search Different Route ({currentRouteIndex + 1} of {availableRoutes.length})
                     </button>
@@ -1773,51 +1766,52 @@ function App() {
                       generateShareableUrl();
                       setShowShareModal(true);
                     }}
-                    className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+                    className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-xs sm:text-sm"
                   >
-                    <Share2 size={20} />
+                    <Share2 size={16} />
                     Share Plan
                   </button>
                   <button
                     onClick={() => setShowMap(!showMap)}
-                    className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+                    className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors text-xs sm:text-sm"
                   >
-                    <Map size={20} />
+                    <Map size={16} />
                     {showMap ? 'Hide Map' : 'Show Map'}
                   </button>
                 </div>
               </div>
 
               {showMap && (
-                <div className="mb-8">
+                <div className="mb-6 sm:mb-8">
                   <div 
                     ref={mapRef}
-                    className="w-full h-96 rounded-lg border border-gray-200"
-                    style={{ minHeight: '400px' }}
+                    className="w-full h-64 sm:h-96 rounded-lg border border-gray-200"
+                    style={{ minHeight: '250px' }}
                   />
-                  <div className="flex flex-wrap gap-4 mt-4 text-sm">
+                  <div className="flex flex-wrap gap-3 sm:gap-4 mt-3 sm:mt-4 text-xs sm:text-sm">
                     <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 bg-slate-800 rounded-full border-2 border-white"></div>
+                      <div className="w-3 h-3 sm:w-4 sm:h-4 bg-slate-800 rounded-full border-2 border-white"></div>
                       <span>Friend locations</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 bg-orange-500 rounded-full border-2 border-white flex items-center justify-center text-white text-xs font-bold">1</div>
+                      <div className="w-5 h-5 sm:w-6 sm:h-6 bg-orange-500 rounded-full border-2 border-white flex items-center justify-center text-white text-xs font-bold">1</div>
                       <span>Recommended venues (ranked)</span>
                     </div>
                   </div>
                 </div>
               )}
               
-              <div className="grid gap-6">
+              <div className="grid gap-4 sm:gap-6">
                 {recommendations.map((spot, index) => (
-                  <div key={index} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
-                    <div className="flex flex-col lg:flex-row gap-6">
+                  <div key={index} className="border border-gray-200 rounded-lg p-4 sm:p-6 hover:shadow-md transition-shadow">
+                    <div className="flex flex-col lg:flex-row gap-4 sm:gap-6">
+                      {/* Venue Photo */}
                       {spot.photos && spot.photos.length > 0 && (
-                        <div className="lg:w-64 flex-shrink-0">
+                        <div className="w-full lg:w-64 flex-shrink-0">
                           <img
                             src={getPhotoUrl(spot.photos[0].photo_reference, 300)}
                             alt={spot.name}
-                            className="w-full h-48 lg:h-40 object-cover rounded-lg"
+                            className="w-full h-40 sm:h-48 lg:h-40 object-cover rounded-lg"
                             onError={(e) => {
                               e.target.style.display = 'none';
                             }}
@@ -1829,7 +1823,7 @@ function App() {
                                   key={photoIndex}
                                   src={getPhotoUrl(photo.photo_reference, 150)}
                                   alt={`${spot.name} ${photoIndex + 2}`}
-                                  className="w-16 h-16 object-cover rounded-lg"
+                                  className="w-12 h-12 sm:w-16 sm:h-16 object-cover rounded-lg"
                                   onError={(e) => {
                                     e.target.style.display = 'none';
                                   }}
@@ -1840,20 +1834,21 @@ function App() {
                         </div>
                       )}
                       
+                      {/* Venue Details */}
                       <div className="flex-1">
-                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start mb-4 gap-4">
+                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start mb-3 sm:mb-4 gap-3 sm:gap-4">
                           <div className="flex-1">
-                            <h3 className="font-semibold text-xl text-gray-900 mb-1">
+                            <h3 className="font-semibold text-lg sm:text-xl text-gray-900 mb-1">
                               #{index + 1} {spot.name}
                             </h3>
-                            <p className="text-sm text-gray-500 mb-2">{spot.address}</p>
-                            <p className="text-sm text-gray-500">
+                            <p className="text-xs sm:text-sm text-gray-500 mb-2">{spot.address}</p>
+                            <p className="text-xs sm:text-sm text-gray-500">
                               ⭐ {spot.rating} • {'£'.repeat(spot.priceLevel)}
                             </p>
                             
                             <div className="mt-2">
                               {spot.openingStatus?.isOpen === true && spot.openingStatus?.closingTime && (
-                                <div className="flex items-center gap-2 text-sm">
+                                <div className="flex items-center gap-2 text-xs sm:text-sm">
                                   <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                                   <span className="text-green-700 font-medium">
                                     Open until {spot.openingStatus.closingTime}
@@ -1862,7 +1857,7 @@ function App() {
                               )}
                               
                               {spot.openingStatus?.isOpen === false && (
-                                <div className="flex items-center gap-2 text-sm">
+                                <div className="flex items-center gap-2 text-xs sm:text-sm">
                                   <div className="w-2 h-2 bg-red-500 rounded-full"></div>
                                   <span className="text-red-700 font-medium">
                                     Closed at your selected time
@@ -1871,10 +1866,10 @@ function App() {
                               )}
                               
                               {(spot.openingStatus?.isOpen === null || spot.hasUnknownHours) && (
-                                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mt-2">
+                                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 sm:p-3 mt-2">
                                   <div className="flex items-start gap-2">
-                                    <AlertCircle className="text-yellow-600 mt-0.5 flex-shrink-0" size={16} />
-                                    <div className="text-sm">
+                                    <AlertCircle className="text-yellow-600 mt-0.5 flex-shrink-0" size={14} />
+                                    <div className="text-xs sm:text-sm">
                                       <p className="text-yellow-800 font-medium">Opening hours unknown</p>
                                       <p className="text-yellow-700">
                                         Please verify this venue is open at {new Date(meetupDateTime).toLocaleString('en-GB', { 
@@ -1890,13 +1885,14 @@ function App() {
                                 </div>
                               )}
 
-                              <div className="flex gap-3 mt-3">
+                              {/* Venue links */}
+                              <div className="flex flex-wrap gap-3 mt-3">
                                 {spot.details?.website && (
                                   <a 
                                     href={spot.details.website} 
                                     target="_blank" 
                                     rel="noopener noreferrer"
-                                    className="text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1"
+                                    className="text-blue-600 hover:text-blue-800 text-xs sm:text-sm flex items-center gap-1"
                                   >
                                     🌐 Website
                                   </a>
@@ -1905,7 +1901,7 @@ function App() {
                                   href={`https://www.google.com/maps/place/?q=place_id:${spot.place_id}`}
                                   target="_blank" 
                                   rel="noopener noreferrer"
-                                  className="text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1"
+                                  className="text-blue-600 hover:text-blue-800 text-xs sm:text-sm flex items-center gap-1"
                                 >
                                   ℹ️ More info
                                 </a>
@@ -1913,12 +1909,12 @@ function App() {
                                   isMobileDevice() ? (
                                     <a 
                                       href={`tel:${spot.details.formatted_phone_number}`}
-                                      className="text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1"
+                                      className="text-blue-600 hover:text-blue-800 text-xs sm:text-sm flex items-center gap-1"
                                     >
                                       📞 Call
                                     </a>
                                   ) : (
-                                    <span className="text-gray-600 text-sm flex items-center gap-1">
+                                    <span className="text-gray-600 text-xs sm:text-sm flex items-center gap-1">
                                       📞 {spot.details.formatted_phone_number}
                                     </span>
                                   )
@@ -1926,35 +1922,35 @@ function App() {
                               </div>
                             </div>
                           </div>
-                          <div className="text-center bg-orange-50 px-4 py-3 rounded-lg border border-orange-200 sm:text-right">
-                            <div className="text-sm text-orange-600 font-medium">Max travel time</div>
-                            <div className="font-bold text-2xl text-orange-700">{spot.maxTravelTime} min</div>
+                          <div className="text-center bg-orange-50 px-3 sm:px-4 py-2 sm:py-3 rounded-lg border border-orange-200 sm:text-right">
+                            <div className="text-xs sm:text-sm text-orange-600 font-medium">Max travel time</div>
+                            <div className="font-bold text-xl sm:text-2xl text-orange-700">{spot.maxTravelTime} min</div>
                           </div>
                         </div>
                         
-                        <div className="bg-gray-50 rounded-lg p-6">
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4">
-                            <div className="text-center bg-white p-4 rounded-lg border border-gray-100">
-                              <div className="text-xl font-bold text-gray-900">{spot.avgTravelTime} min</div>
-                              <div className="text-sm text-gray-600">Average time</div>
+                        <div className="bg-gray-50 rounded-lg p-3 sm:p-6">
+                          <div className="grid grid-cols-3 gap-3 sm:gap-6 mb-3 sm:mb-4">
+                            <div className="text-center bg-white p-2 sm:p-4 rounded-lg border border-gray-100">
+                              <div className="text-lg sm:text-xl font-bold text-gray-900">{spot.avgTravelTime} min</div>
+                              <div className="text-xs sm:text-sm text-gray-600">Average time</div>
                             </div>
-                            <div className="text-center bg-white p-4 rounded-lg border border-gray-100">
-                              <div className="text-xl font-bold text-gray-900">{spot.fairnessScore} min</div>
-                              <div className="text-sm text-gray-600">Time difference</div>
+                            <div className="text-center bg-white p-2 sm:p-4 rounded-lg border border-gray-100">
+                              <div className="text-lg sm:text-xl font-bold text-gray-900">{spot.fairnessScore} min</div>
+                              <div className="text-xs sm:text-sm text-gray-600">Time difference</div>
                             </div>
-                            <div className="text-center bg-white p-4 rounded-lg border border-gray-100">
-                              <div className="text-xl font-bold text-gray-900">{spot.minTravelTime} min</div>
-                              <div className="text-sm text-gray-600">Shortest journey</div>
+                            <div className="text-center bg-white p-2 sm:p-4 rounded-lg border border-gray-100">
+                              <div className="text-lg sm:text-xl font-bold text-gray-900">{spot.minTravelTime} min</div>
+                              <div className="text-xs sm:text-sm text-gray-600">Shortest journey</div>
                             </div>
                           </div>
                           
-                          <div className="border-t border-gray-200 pt-4">
-                            <div className="text-sm text-gray-600 mb-3 font-medium">Individual journey details:</div>
+                          <div className="border-t border-gray-200 pt-3 sm:pt-4">
+                            <div className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-3 font-medium">Individual journey details:</div>
                             <div className="space-y-2">
                               {spot.travelDetails?.map((journey, i) => (
-                                <div key={i} className="flex justify-between items-center bg-white px-4 py-3 rounded-lg border border-gray-100 text-sm">
+                                <div key={i} className="flex justify-between items-center bg-white px-2 sm:px-4 py-2 sm:py-3 rounded-lg border border-gray-100 text-xs sm:text-sm">
                                   <span className="font-medium text-gray-900">{journey.friend}</span>
-                                  <div className="flex items-center gap-3">
+                                  <div className="flex items-center gap-2 sm:gap-3">
                                     <span className="text-gray-600">{journey.duration} min • {journey.distance} km</span>
                                     <button
                                       onClick={() => {
@@ -1969,7 +1965,7 @@ function App() {
                                           window.open(directionsUrl, '_blank');
                                         }
                                       }}
-                                      className="px-3 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600 transition-colors"
+                                      className="px-2 sm:px-3 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600 transition-colors"
                                     >
                                       Directions
                                     </button>
@@ -1978,7 +1974,7 @@ function App() {
                               ))}
                             </div>
                             
-                            <div className="mt-4 pt-3 border-t border-gray-200">
+                            <div className="mt-3 sm:mt-4 pt-2 sm:pt-3 border-t border-gray-200">
                               <button
                                 onClick={() => {
                                   const googleDirFlag = transport === 'driving' ? 'd' : 
@@ -1991,9 +1987,9 @@ function App() {
                                   const mapsUrl = `https://www.google.com/maps/dir/${waypoints}/${destination}?dirflg=${googleDirFlag}`;
                                   window.open(mapsUrl, '_blank');
                                 }}
-                                className="w-full px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors flex items-center justify-center gap-2"
+                                className="w-full px-3 sm:px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors flex items-center justify-center gap-2 text-xs sm:text-sm"
                               >
-                                <Navigation size={16} />
+                                <Navigation size={14} />
                                 Get Directions for Everyone
                               </button>
                             </div>
@@ -2006,27 +2002,27 @@ function App() {
               </div>
               
               {allScoredVenues.length > recommendations.length && (
-                <div className="mt-8 text-center">
+                <div className="mt-6 sm:mt-8 text-center">
                   <button
                     onClick={() => {
                       const currentCount = recommendations.length;
                       const newCount = Math.min(currentCount + 5, allScoredVenues.length);
                       setRecommendations(allScoredVenues.slice(0, newCount));
                     }}
-                    className="px-6 py-3 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors flex items-center gap-2 mx-auto"
+                    className="px-4 sm:px-6 py-2 sm:py-3 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors flex items-center gap-2 mx-auto text-sm sm:text-base"
                   >
-                    <MapPin size={18} />
+                    <MapPin size={16} />
                     Show More Venues ({Math.min(5, allScoredVenues.length - recommendations.length)} more available)
                   </button>
-                  <p className="text-sm text-gray-500 mt-2">
+                  <p className="text-xs sm:text-sm text-gray-500 mt-2">
                     Showing {recommendations.length} of {allScoredVenues.length} venues found
                   </p>
                 </div>
               )}
               
               {recommendations.length >= allScoredVenues.length && allScoredVenues.length > 5 && (
-                <div className="mt-6 text-center">
-                  <p className="text-sm text-gray-600">
+                <div className="mt-4 sm:mt-6 text-center">
+                  <p className="text-xs sm:text-sm text-gray-600">
                     Showing all {allScoredVenues.length} venues found in this area
                   </p>
                 </div>
